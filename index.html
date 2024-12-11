@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>10716</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000000; /* Set background to black */
+            touch-action: none; /* Disable default touch behaviors */
+            user-select: none; /* Disable text selection */
+            -webkit-user-select: none; /* Safari specific styling */
+        }
+        #vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: linear-gradient(to top, black 0%, transparent 12%);
+            mix-blend-mode: multiply;
+        }
+        /* Styles for the toggle button */
+        #toggleButton {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 25px;
+            background-color: #555;
+            border: none;
+            cursor: pointer;
+        }
+        #toggleButton:focus {
+            outline: none;
+        }
+        #toggleButton:hover {
+            background-color: #777;
+        }
+        /* Developer mode controls */
+        #developerControls {
+            display: none;
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+        }
+        #developerControls button {
+            margin-right: 10px;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="vignette"></div>
+    <div id="overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; color: white; font-size: 24px; font-family: Arial, sans-serif;">Lot #1</div>
+    <!-- Toggle button to switch between splats -->
+    <button id="toggleButton"></button>
+    <!-- Developer mode controls -->
+    <div id="developerControls">
+        <button id="toggleSplat1">Toggle Splat 1</button>
+        <button id="toggleSplat2">Toggle Splat 2</button>
+    </div>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+            "@lumaai/luma-web": "https://unpkg.com/@lumaai/luma-web@0.2.0/dist/library/luma-web.module.js"
+        }
+    }
+    </script>
+    <script type="module">
+    import { WebGLRenderer, PerspectiveCamera, Scene, Color, Vector3, SphereGeometry, CylinderGeometry, BoxGeometry, MeshBasicMaterial, Mesh, TextureLoader, PlaneGeometry, DoubleSide, MeshStandardMaterial, Texture, MathUtils } from 'three';
+
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { LumaSplatsThree } from '@lumaai/luma-web';
+
+    function isChrome() {
+        return /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+    }
+
+    // Parameters
+    const parameters = {
+        camera: {
+            minY: 0.05,
+            maxZoomOut: 1000,
+            startPosition: { x: 0, y: 0.3, z: 1.5 },
+        },
+        scene: {
+            origin: { x: 0, y: 0, z: 0 },
+            targetLimit: { x: 0, z: 0 }
+        },
+        animation: {
+            autoRotate: true,
+            startRadius: 1.5,
+            speed: -0.0015,
+            initialAngle: 245  // Start at 45 degrees
+        },
+        rebound: {
+            speed: 0.2,
+            elasticity: 0.05
+        },
+        maxDistance: {
+            base: 4,
+            responsiveness: 1.7
+        },
+        developerMode: false  // Set this to true to activate developer mode
+    };
+
+    const hotspotConfigurations = [
+        //{ text: 'Coopers View Park', position: { x: 3.3, y: -0.8, z: -2.4 }, scale: 0.7 },
+        
+    ];
+
+    // Centralized control section for TapDots
+    const tapDotConfigurations = [
+        // Example TapDots
+        //{ position: { x: 0, y: 0, z: 1 }, scale: 1, icon: 'info' },
+        //{ position: { x: 1, y: 0, z: 0 }, scale: 1, icon: 'camera' },
+        
+    ];
+
+    // Base tap detection radius in pixels
+    const baseTapDetectionRadius = 15; // Base value for tap detection radius
+
+    // Centralized control section for BorderDots and BorderLines
+    const borderDotPositions = [
+        //{ name: 'BorderDot_1', position: { x: 0.08, y: -0.917, z: -0.15 } },
+        //{ name: 'BorderDot_2', position: { x: 0.14, y: -0.917, z: -0.08 } },
+        ];
+
+    const borderLineConnections = [
+        //{ start: 'BorderDot_1', end: 'BorderDot_2' },
+        
+    ];
+
+    // Border Dot Parameters
+    const borderDotParams = {
+        radius: 0.01,
+        widthSegments: 16,
+        heightSegments: 16,
+        color: 0x9B9B90
+    };
+
+    // Base sizes for TapDots and Icons
+    const tapDotBaseSize = 0.04; // Adjust this value to change the TapDot size
+    const iconBaseSize = 0.08;   // Adjust this value to change the Icon size
+
+    // Zone configurations
+    const zoneConfigurations = [
+        {
+            name: 'Zone1',
+            center: { x: 0, y: 0, z: 0 }, // Center point of the zone
+            radius: 2, // Radius of the zone
+            splatsOn: ['splat2'], // Splats to turn ON when inside this zone
+            splatsOff: ['splat1'] // Splats to turn OFF when inside this zone
+        }
+        // Add more zones if needed
+    ];
+
+    if (isChrome()) {
+        parameters.animation.speed *= 0.5;
+    }
+
+    let renderer = new WebGLRenderer({ antialias: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(new Color(0x000000));
+    renderer.setPixelRatio(window.devicePixelRatio * 0.8);
+    document.body.appendChild(renderer.domElement);
+
+    let scene = new Scene();
+
+    let camera = new PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, parameters.camera.maxZoomOut);
+    camera.position.set(parameters.camera.startPosition.x, parameters.camera.startPosition.y, parameters.camera.startPosition.z);
+
+    let controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+
+    let sceneCenter = new Vector3(parameters.scene.origin.x, parameters.scene.origin.y, parameters.scene.origin.z);
+
+    controls.addEventListener('change', () => {
+        // Restrict camera Y minimum
+        if (camera.position.y < parameters.camera.minY) {
+            camera.position.y += (parameters.camera.minY - camera.position.y) * parameters.rebound.speed;
+        }
+
+        // Restrict target movement on X and Z axes with elastic rebound
+        const clampRebound = (current, min, max) => {
+            let clamped = Math.min(Math.max(current, min), max);
+            return clamped + (current - clamped) * parameters.rebound.elasticity;
+        };
+        controls.target.x = clampRebound(controls.target.x, -parameters.scene.targetLimit.x, parameters.scene.targetLimit.x);
+        controls.target.y = parameters.scene.origin.y; // Set target Y limit
+        controls.target.z = clampRebound(controls.target.z, -parameters.scene.targetLimit.z, parameters.scene.targetLimit.z);
+
+        // Restrict camera distance from the scene center
+        const maxDistance = calculateMaxDistance();  // Get the updated max distance
+        if (camera.position.distanceTo(sceneCenter) > maxDistance) {
+            let direction = new Vector3().subVectors(camera.position, sceneCenter).normalize();
+            camera.position.copy(direction.multiplyScalar(maxDistance).add(sceneCenter));
+        }
+
+        // Zone-based splat toggling
+        if (!developerMode) {
+            let cameraInZone = false;
+
+            for (let zone of zoneConfigurations) {
+                let zoneCenter = new Vector3(zone.center.x, zone.center.y, zone.center.z);
+                let distanceToZone = camera.position.distanceTo(zoneCenter);
+
+                if (distanceToZone <= zone.radius) {
+                    cameraInZone = true;
+                    // Set splats visibility according to the zone
+                    for (let splatName of zone.splatsOn) {
+                        if (splats[splatName] && !splats[splatName].visible) {
+                            splats[splatName].visible = true;
+                        }
+                    }
+                    for (let splatName of zone.splatsOff) {
+                        if (splats[splatName] && splats[splatName].visible) {
+                            splats[splatName].visible = false;
+                        }
+                    }
+                    break; // Assuming only one zone is active at a time
+                }
+            }
+
+            if (!cameraInZone) {
+                // Set default splat visibility when not in any zone
+                splats.splat1.visible = true;
+                splats.splat2.visible = false;
+            }
+        }
+    });
+
+    // Developer mode toggle
+    const developerMode = parameters.developerMode;
+
+    // Splat configurations
+    const splatConfigs = {
+        splat1: {
+            source: 'https://lumalabs.ai/embed/44ed25b0-6045-4fba-9a69-e939bd539a81?mode=sparkles&background=%23ffffff&color=%23000000&showTitle=true&loadBg=true&logoPosition=bottom-left&infoPosition=bottom-right&cinematicVideo=undefined&showMenu=false',
+            position: new Vector3(0.12, -0.07, 0.2),
+            rotation: { x: 0, y: 0, z: 0 },  // Degrees
+            scale: 1  // Scalar value
+        },
+        splat2: {
+            source: 'https://lumalabs.ai/embed/62c73927-9136-413b-82f0-b16398491872?mode=sparkles&background=%23ffffff&color=%23000000&showTitle=true&loadBg=true&logoPosition=bottom-left&infoPosition=bottom-right&cinematicVideo=undefined&showMenu=false',
+            position: new Vector3(-0.01, 0.01, -0.02),
+            rotation: { x: 2, y: 179, z: 0.3 },  // Degrees, x, Yaw, Pitch?
+            scale: 0.284
+        }
+    };
+
+    // Create the first splat
+    let splat = new LumaSplatsThree({
+        source: splatConfigs.splat1.source,
+        particleRevealEnabled: true,
+        particleRevealDuration: 3.33 // Speed up by 50%
+    });
+
+    // Apply depth testing and lower render order for the splat
+    splat.material.depthTest = true;
+    splat.renderOrder = 999;  // Ensure the splat is rendered before the border
+
+    // Apply position, rotation, and scale from the configuration
+    splat.position.copy(splatConfigs.splat1.position);
+    splat.rotation.x = MathUtils.degToRad(splatConfigs.splat1.rotation.x);
+    splat.rotation.y = MathUtils.degToRad(splatConfigs.splat1.rotation.y);
+    splat.rotation.z = MathUtils.degToRad(splatConfigs.splat1.rotation.z);
+    splat.scale.setScalar(splatConfigs.splat1.scale);
+
+    scene.add(splat);
+
+    // Create the second splat
+    let splat2 = new LumaSplatsThree({
+        source: splatConfigs.splat2.source,
+        particleRevealEnabled: true,
+        particleRevealDuration: 3.33 // Same as splat1
+    });
+
+    // Apply the same settings to splat2
+    splat2.material.depthTest = true;
+    splat2.renderOrder = 999;
+    splat2.position.copy(splatConfigs.splat2.position);
+    splat2.rotation.x = MathUtils.degToRad(splatConfigs.splat2.rotation.x);
+    splat2.rotation.y = MathUtils.degToRad(splatConfigs.splat2.rotation.y);
+    splat2.rotation.z = MathUtils.degToRad(splatConfigs.splat2.rotation.z);
+    splat2.scale.setScalar(splatConfigs.splat2.scale);
+
+    scene.add(splat2);
+
+    // Create a splats object for easy access by name
+    const splats = {
+        splat1: splat,
+        splat2: splat2
+    };
+
+    // Control visibility based on developer mode
+    if (developerMode) {
+        splat.visible = true;
+        splat2.visible = true;
+        // Show developer controls
+        document.getElementById('developerControls').style.display = 'block';
+
+        // Add event listeners for toggling splats
+        document.getElementById('toggleSplat1').addEventListener('click', () => {
+            splat.visible = !splat.visible;
+        });
+        document.getElementById('toggleSplat2').addEventListener('click', () => {
+            splat2.visible = !splat2.visible;
+        });
+    } else {
+        // Hide the toggle button since we are using zones now
+        document.getElementById('toggleButton').style.display = 'none';
+
+        // Initialize splats visibility
+        splat.visible = true;
+        splat2.visible = false;
+    }
+
+    // TapDots Logic
+    let tapDots = [];
+
+    // Load the textures for icons
+    const textureLoader = new TextureLoader();
+    const iconTextures = {};
+    const iconsToLoad = [
+        { name: 'info', url: 'https://raw.githubusercontent.com/HansenHomeAI/WhiteInfoIcon/main/3TestIcons-8.png' },
+        { name: 'camera', url: 'https://raw.githubusercontent.com/HansenHomeAI/WhiteCameraIcon/main/3TestIcons-9.png' },
+        // Add more icons here in the future
+    ];
+
+    let iconsLoaded = 0;
+
+    iconsToLoad.forEach(iconData => {
+        textureLoader.load(iconData.url, (texture) => {
+            iconTextures[iconData.name] = texture;
+            iconsLoaded++;
+
+            if (iconsLoaded === iconsToLoad.length) {
+                // Now that all textures are loaded, create the TapDots
+                tapDotConfigurations.forEach((config, index) => createTapDot(config, index));
+
+                // Start the animation loop after TapDots are created
+                animate();
+            }
+        },
+        undefined,
+        (err) => {
+            console.error(`Error loading texture: ${iconData.url}`, err);
+        });
+    });
+
+    // Function to generate unique colors for TapDots
+    function generateUniqueColor(index) {
+        // Start from index 1 to avoid black
+        index += 1;
+        // Generate color components
+        const r = (index * 37) % 256;
+        const g = (index * 57) % 256;
+        const b = (index * 79) % 256;
+        // Ensure components are at least 50 to avoid too dark colors
+        const minComponent = 50;
+        const maxComponent = 255;
+        const range = maxComponent - minComponent;
+        const adjustComponent = (value) => Math.floor((value / 255) * range + minComponent);
+        const finalR = adjustComponent(r);
+        const finalG = adjustComponent(g);
+        const finalB = adjustComponent(b);
+        // Convert to hex string
+        return `#${finalR.toString(16).padStart(2,'0')}${finalG.toString(16).padStart(2,'0')}${finalB.toString(16).padStart(2,'0')}`;
+    }
+
+    function createTapDot(config, index) {
+        const { position, scale, icon } = config;
+
+        // Assign a unique color to each TapDot
+        const dotColor = generateUniqueColor(index);
+
+        // Create the TapDot
+        let dotGeometry = new SphereGeometry(tapDotBaseSize, 32, 32);
+        let dotMaterial = new MeshBasicMaterial({
+            color: 0x2C2C2E,
+            transparent: true,
+            opacity: 0.7
+        });
+        let dot = new Mesh(dotGeometry, dotMaterial);
+        dot.position.set(position.x, position.y, position.z);
+        dot.scale.setScalar(scale || 1); // Set the scale
+
+        // Create the icon
+        const iconGeometry = new PlaneGeometry(iconBaseSize, iconBaseSize); // Use base size
+        const iconMaterial = new MeshBasicMaterial({
+            map: iconTextures[icon],
+            transparent: true,
+            alphaTest: 0.5
+        });
+
+        let iconMesh = new Mesh(iconGeometry, iconMaterial);
+
+        // Position the iconMesh at the same position as the dot
+        iconMesh.position.copy(dot.position);
+        iconMesh.scale.setScalar(scale || 1); // Set the scale
+
+        // Add the TapDot color data to track it
+        tapDots.push({ dot, iconMesh, color: dotColor, scale, index, config });
+
+        scene.add(dot);
+        scene.add(iconMesh);
+    }
+
+    // Create a hidden canvas for tap detection
+    const hiddenCanvas = document.createElement('canvas');
+    const hiddenContext = hiddenCanvas.getContext('2d');
+    hiddenCanvas.width = window.innerWidth;
+    hiddenCanvas.height = window.innerHeight;
+    hiddenCanvas.style.display = 'none'; // Hide the canvas
+    document.body.appendChild(hiddenCanvas);  // Append to body but keep it hidden
+
+    function renderHiddenCanvas() {
+        hiddenContext.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height); // Clear the hidden canvas
+
+        tapDots.forEach((tapDot, index) => {
+            // Convert 3D position to screen space
+            let screenPos = tapDot.dot.position.clone().project(camera);
+            let x = (screenPos.x + 1) / 2 * window.innerWidth;
+            let y = -(screenPos.y - 1) / 2 * window.innerHeight;
+
+            // Calculate tap detection radius based on distance from the camera
+            const distanceToCamera = camera.position.distanceTo(tapDot.dot.position);
+            const dynamicRadius = baseTapDetectionRadius * (tapDot.scale || 1) / distanceToCamera;
+
+            // Render the dot on the hidden canvas
+            hiddenContext.fillStyle = tapDot.color;
+            hiddenContext.beginPath();
+            hiddenContext.arc(x, y, dynamicRadius, 0, 2 * Math.PI);
+            hiddenContext.fill();
+        });
+    }
+
+    const totalHotspots = hotspotConfigurations.length;
+    const hotspots = hotspotConfigurations.map((config, index) => createHotspot(config, index, totalHotspots));
+
+    function calculateMaxDistance() {
+        const aspectRatio = window.innerWidth / window.innerHeight;
+
+        // Taller aspect ratios (e.g., mobile) allow more max distance
+        let additionalDistance = (1 / aspectRatio) * parameters.maxDistance.responsiveness;
+
+        // Ensure the max distance scales based on the aspect ratio
+        const maxDistance = parameters.maxDistance.base + additionalDistance;
+
+        return maxDistance;
+    }
+
+    // Function to create a BorderDot based on position data
+    function createBorderDot(dotData) {
+        const { name, position } = dotData;
+        let borderDotGeometry = new SphereGeometry(borderDotParams.radius, borderDotParams.widthSegments, borderDotParams.heightSegments);
+        let borderDotMaterial = new MeshBasicMaterial({ color: borderDotParams.color, transparent: true, opacity: 0 }); // Start with opacity 0
+        let borderDot = new Mesh(borderDotGeometry, borderDotMaterial);
+
+        // Flatten the BorderDot along the y-axis
+        borderDot.scale.y = 0.1; // Adjust this value as needed
+
+        // Set the position
+        borderDot.position.set(position.x, position.y, position.z);
+
+        // Add the border dot to the scene
+        scene.add(borderDot);
+
+        return { name, mesh: borderDot };
+    }
+
+    // Function to create a BorderLine between two BorderDots
+    // Modify createBorderLineBetweenDots to ensure consistency
+function createBorderLineBetweenDots(dot1, dot2) {
+    const start = dot1.position;
+    const end = dot2.position;
+    const direction = new Vector3().subVectors(end, start);
+    const length = direction.length();
+    const midPoint = new Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+    // Create a BoxGeometry with length equal to distance between dots
+    const boxThickness = borderDotParams.radius * 2; // Thickness matches BorderDot diameter
+    const boxHeight = 0.002; // Flattened height along y-axis
+    const boxGeometry = new BoxGeometry(length, boxHeight, boxThickness);
+
+    const boxMaterial = new MeshBasicMaterial({ color: borderDotParams.color, transparent: true, opacity: 0 });
+
+    const box = new Mesh(boxGeometry, boxMaterial);
+
+    // Rotate the box to align with the direction
+    const axis = new Vector3(1, 0, 0); // Default box direction (along X-axis)
+    box.quaternion.setFromUnitVectors(axis.normalize(), direction.clone().normalize());
+
+    // Position the box at the midpoint
+    box.position.copy(midPoint);
+
+    // Add the box (BorderLine) to the scene
+    scene.add(box);
+
+    return box;
+}
+
+    let fadeDuration = 5; // Duration of the fade-in in seconds
+    let borderDotDelay = 0.9; // Delay for BorderDots (in seconds)
+    let fadeStartTime = null; // Start time of the fade
+
+    // Animate function for fade-in effect
+    function fadeInBorders(time) {
+        if (!fadeStartTime) fadeStartTime = time; // Initialize the start time
+        let elapsedTime = (time - fadeStartTime) / 1000; // Convert time to seconds
+
+        // Calculate the current opacity for BorderLines (no delay)
+        let lineOpacity = Math.min(elapsedTime / fadeDuration, 1);
+
+        // Calculate the current opacity for BorderDots (with delay)
+        let dotElapsedTime = elapsedTime - borderDotDelay; // Subtract the delay for dots
+        let dotOpacity = Math.min(Math.max(dotElapsedTime / fadeDuration, 0), 1); // Ensure it doesn’t go below 0
+
+        // Update opacity of all BorderLines (fade in first)
+        borderLines.forEach(box => {
+            box.material.opacity = lineOpacity;
+        });
+
+        // Update opacity of all BorderDots (fade in with delay)
+        Object.values(borderDots).forEach(dot => {
+            dot.material.opacity = dotOpacity;
+        });
+
+        // Continue the fade-in effect until both opacities reach 1
+        if (lineOpacity < 1 || dotOpacity < 1) {
+            requestAnimationFrame(fadeInBorders);
+        }
+    }
+
+    // Store BorderDots and BorderLines
+    const borderDots = {};
+    const borderLines = [];
+
+    // Create BorderDots from the centralized control section
+    borderDotPositions.forEach(dotData => {
+        const createdDot = createBorderDot(dotData);
+        borderDots[createdDot.name] = createdDot.mesh;
+    });
+
+    // Create BorderLines based on connections
+    borderLineConnections.forEach(connection => {
+        const dot1 = borderDots[connection.start];
+        const dot2 = borderDots[connection.end];
+        if (dot1 && dot2) {
+            const borderLine = createBorderLineBetweenDots(dot1, dot2);
+            borderLines.push(borderLine);  // Store the created line
+        }
+    });
+
+    // Start the fade-in sequence for borders
+    requestAnimationFrame(fadeInBorders);
+
+    // Function to create hotspots
+    function createHotspot(hotspotConfig, index, totalHotspots) {
+        const { text, position, scale } = hotspotConfig;
+
+        // Create the dot
+        let dotGeometry = new SphereGeometry(0.03, 32, 32);
+        let dotMaterial = new MeshBasicMaterial({ color: 0xffffff });
+        let dot = new Mesh(dotGeometry, dotMaterial);
+        dot.position.set(position.x, position.y, position.z);
+        dot.scale.setScalar(scale);
+        scene.add(dot);
+
+        // Create canvas for text
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = 3072;  // Adjust the width for larger text if needed
+        canvas.height = 512;
+        context.fillStyle = 'rgba(255, 255, 255, 0)';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Set the font to "Helvetica Neue Bold" with fallback options
+        context.font = '520 250px "Helvetica Neue", Helvetica, Arial, sans-serif';
+
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        context.lineWidth = 5;
+        context.fillStyle = 'white';  // Set the fill color for the text
+        context.fillText(text, canvas.width / 2, canvas.height / 2);
+        context.strokeText(text, canvas.width / 2, canvas.height / 2);
+
+        // Create texture from canvas
+        const texture = new Texture(canvas);
+        texture.needsUpdate = true;
+
+        // Create plane geometry and mesh for the text
+        const geometry = new PlaneGeometry(2.4, 0.4);  // Match the canvas width
+        const material = new MeshStandardMaterial({
+            map: texture,
+            transparent: false,
+            alphaTest: 0.5,
+            side: DoubleSide,
+            premultipliedAlpha: true,
+            emissive: 'white',
+            emissiveIntensity: 2,
+        });
+        const textPlane = new Mesh(geometry, material);
+
+        // Position and rotate text plane
+        textPlane.position.set(position.x, position.y, position.z);
+        textPlane.rotation.y = MathUtils.degToRad(90); // Rotate by 90 degrees
+        textPlane.scale.setScalar(scale);
+
+        // IMPORTANT HEIGHT CONTROL: Adjust the y-translation dynamically
+        const yTranslation = 0.3 - (index / totalHotspots) * 0.05;
+        textPlane.geometry.translate(0, yTranslation, 0);
+
+        scene.add(textPlane);
+
+        return { dot, textPlane };
+    }
+
+    window.addEventListener('resize', function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // Recalculate max distance based on new screen size
+        parameters.scene.maxDistanceFromCenter = calculateMaxDistance();
+    });
+
+    let angle = parameters.animation.initialAngle !== undefined ? MathUtils.degToRad(parameters.animation.initialAngle) : 0;
+    let autoRotate = parameters.animation.autoRotate;
+
+    function animate() {
+        if (autoRotate) {
+            angle += parameters.animation.speed;
+            camera.position.x = Math.sin(angle) * parameters.animation.startRadius;
+            camera.position.z = Math.cos(angle) * parameters.animation.startRadius;
+            camera.lookAt(scene.position); // Ensure the camera always looks at the scene
+        }
+
+        // Ensure text planes face the camera
+        hotspots.forEach(hotspot => {
+            hotspot.textPlane.lookAt(camera.position);
+        });
+
+        // Update the icon orientation for each TapDot
+        tapDots.forEach(tapDot => {
+            // Make the iconMesh look at the camera
+            tapDot.iconMesh.lookAt(camera.position);
+
+            // Direction from TapDot to camera
+            let direction = new Vector3().subVectors(camera.position, tapDot.dot.position).normalize();
+
+            // Calculate the TapDot's radius
+            let tapDotRadius = tapDotBaseSize * (tapDot.scale || 1);
+
+            // Calculate the offset distance
+            let offsetDistance = tapDotRadius + 0.02; // Add 0.02 to prevent overlap
+
+            // Position the iconMesh
+            tapDot.iconMesh.position.copy(tapDot.dot.position).add(direction.multiplyScalar(offsetDistance));
+        });
+
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+    }
+
+    controls.addEventListener('start', () => autoRotate = false);
+    window.addEventListener('touchstart', () => autoRotate = false);
+
+    window.addEventListener('click', (event) => {
+        const x = event.clientX;
+        const y = event.clientY;
+
+        // Render the hidden canvas to ensure accurate color detection
+        renderHiddenCanvas();
+
+        // Get the color at the tap position on the hidden canvas
+        const pixelData = hiddenContext.getImageData(x, y, 1, 1).data;
+        const tappedColor = `#${pixelData[0].toString(16).padStart(2, '0')}${pixelData[1].toString(16).padStart(2, '0')}${pixelData[2].toString(16).padStart(2, '0')}`;
+
+        console.log(`Tapped color: ${tappedColor}`); // Log the detected color
+
+        // Find the closest TapDot within a threshold distance
+        let closestDot = null;
+        let closestDistance = Infinity;
+        tapDots.forEach(tapDot => {
+            // Convert TapDot position to screen coordinates
+            let screenPos = tapDot.dot.position.clone().project(camera);
+            let dotX = (screenPos.x + 1) / 2 * window.innerWidth;
+            let dotY = -(screenPos.y - 1) / 2 * window.innerHeight;
+
+            // Calculate the distance from the tap to the TapDot
+            let distance = Math.sqrt(Math.pow(dotX - x, 2) + Math.pow(dotY - y, 2));
+
+            // Check if this TapDot is the closest within a reasonable range
+            if (distance < closestDistance && distance < baseTapDetectionRadius * (tapDot.scale || 1)) {
+                closestDot = tapDot;
+                closestDistance = distance;
+            }
+        });
+
+        if (closestDot) {
+            console.log(`Tapped TapDot: ${closestDot.index}`);
+
+            // Show a square with the TapDot's unique color and index number
+            let coloredSquare = document.createElement('div');
+            coloredSquare.style.position = 'absolute';
+            coloredSquare.style.top = '10px';
+            coloredSquare.style.left = '10px';
+            coloredSquare.style.width = '50px';
+            coloredSquare.style.height = '50px';
+            coloredSquare.style.backgroundColor = closestDot.color;
+            coloredSquare.style.color = 'white';
+            coloredSquare.style.display = 'flex';
+            coloredSquare.style.alignItems = 'center';
+            coloredSquare.style.justifyContent = 'center';
+            coloredSquare.style.fontSize = '20px';
+            coloredSquare.style.fontWeight = 'bold';
+            coloredSquare.textContent = `Dot ${closestDot.index}`;
+            document.body.appendChild(coloredSquare);
+
+            setTimeout(() => {
+                document.body.removeChild(coloredSquare);
+            }, 1000); // Remove the square after 1 second
+        } else {
+            console.log('No TapDot detected');
+        }
+    });
+
+    </script>
+</body>
+</html>
